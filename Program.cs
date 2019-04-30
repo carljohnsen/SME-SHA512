@@ -11,8 +11,8 @@ namespace sme_sha512
             using (new Simulation())
             {
                 var tester = new Tester(1024);
-                var core = new Core();
-                var bram = new TrueDualPortMemory<ulong>(16);
+                var core = new CoreOpt();
+                var bram = new TrueDualPortMemory<ulong>(80); // TODO 16 for normal, 80 for opt
 
                 tester.bramwr = bram.ControlA;
                 tester.bramrd = bram.ReadResultA;
