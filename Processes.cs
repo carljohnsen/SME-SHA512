@@ -8,20 +8,6 @@ using System.Text;
 namespace sme_sha512
 {
 
-    [InitializedBus]
-    public interface Control : IBus
-    {
-        bool init { get; set; }
-        bool update { get; set; }
-        bool finish { get; set; }
-    }
-
-    [InitializedBus]
-    public interface Status : IBus
-    {
-        bool busy { get; set; }
-    }
-
     [ClockedProcess]
     public class Core : SimpleProcess
     {
@@ -36,7 +22,7 @@ namespace sme_sha512
         public Status status = Scope.CreateBus<Status>();
 
         int i;
-        ulong[] hs = new ulong[8]; //0, h1, h2, h3, h4, h5, h6, h7;
+        ulong[] hs = new ulong[8];
         ulong a, b, c, d, e, f, g, h;
 
         ulong[] k = { 
@@ -58,12 +44,6 @@ namespace sme_sha512
             0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817 };
         
         ulong[] w = new ulong[80];
-
-        // Pre-processing (Padding):
-        // begin with the original message of length L bits
-        // append a single '1' bit
-        // append K '0' bits, where K is the minimum number >= 0 such that L + 1 + K + 64 is a multiple of 512
-        // append L as a 64-bit big-endian integer, making the total post-processed length a multiple of 512 bits
 
         enum States { idle, init, load, prep, update, post, flush };
         States state = States.idle;
@@ -225,9 +205,9 @@ namespace sme_sha512
         public TrueDualPortMemory<ulong>.IReadResultA bramrd;
 
         [OutputBus]
-        public TrueDualPortMemory<ulong>.IControlA bramwr;
-        [OutputBus]
         public Control ctrl = Scope.CreateBus<Control>();
+        [OutputBus]
+        public TrueDualPortMemory<ulong>.IControlA bramwr;
 
         public Tester(int size_bytes)
         {
@@ -242,6 +222,13 @@ namespace sme_sha512
             return tmp;
         }
 
+        private void print_hash(byte[] digest)
+        {
+            for (int i = 0; i < digest.Length; i++)
+                Console.Write("{0:x2}", digest[i]);
+            Console.WriteLine();
+        }
+
         private byte[] unpack_bytes(ulong data)
         {
             byte[] tmp = new byte[16];
@@ -250,22 +237,13 @@ namespace sme_sha512
             return tmp;
         }
 
-        private void print_hash(byte[] digest)
-        {
-            for (int i = 0; i < digest.Length; i++)
-                Console.Write("{0:x2}", digest[i]);
-            Console.WriteLine();
-        }
-
+        Random rng = new Random();
         SHA512 sha = new SHA512Managed();
         int size;
-        Random rng = new Random();
 
         public override async System.Threading.Tasks.Task Run()
         {
             await ClockAsync();
-
-            // TODO fix at køre flere blokke
 
             // Init the hashing
             ctrl.init = true;
@@ -279,7 +257,6 @@ namespace sme_sha512
             byte[] data = new byte[size];
             for (int i = 0; i < data.Length; i++)
                 data[i] = (byte) rng.Next();
-            //data = Encoding.ASCII.GetBytes("aoeu");
 
             // Process the data in blocks
             int block_size_bytes = 1024 / 8;
@@ -289,11 +266,13 @@ namespace sme_sha512
             for (int j = 0; j < num_blocks; j++)
             {
                 Console.Write("\r{0}/{1} blocks...", j, num_blocks);
+
+                // Fill the block
                 ulong[] block = new ulong[block_size_bytes/8];
                 for (int i = 0; i < block.Length; i++)
                     block[i] = pack_bytes(data.Skip((j*block_size_bytes)+(i*8)).Take(8).ToArray());
                 
-                // Check if last block, in which case do padding and sizes
+                // Check if last of data, in which case put stop bit
                 if (data.Length >= j*block_size_bytes && data.Length < (j+1)*block_size_bytes)
                 {
                     int bytes = data.Length - (j*block_size_bytes);
@@ -302,6 +281,7 @@ namespace sme_sha512
                     block[word_i] |= (ulong)0x80 << ((7-byte_i) * 8);
                 }
 
+                // Check if last block, in which case put size of data in bits
                 if (j == num_blocks-1)
                 {
                     ulong bits = (ulong)data.Length * 8;
