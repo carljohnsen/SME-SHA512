@@ -22,7 +22,12 @@ namespace sme_sha512
                 core.bramrd = bram.ReadResultB;
                 core.ctrl = tester.ctrl;
 
+                Simulation.Current.AddTopLevelInputs(tester.bramwr, tester.ctrl);
+                Simulation.Current.AddTopLevelOutputs(tester.bramrd, tester.status);
+
                 Simulation.Current
+                    .BuildCSVFile()
+                    .BuildVHDL()
                     .Run();
             }
         }

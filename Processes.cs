@@ -288,7 +288,7 @@ namespace sme_sha512
                 num_blocks++;
             for (int j = 0; j < num_blocks; j++)
             {
-                Console.Write("\r{0}/{1} blocks", j, num_blocks);
+                Console.Write("\r{0}/{1} blocks...", j, num_blocks);
                 ulong[] block = new ulong[block_size_bytes/8];
                 for (int i = 0; i < block.Length; i++)
                     block[i] = pack_bytes(data.Skip((j*block_size_bytes)+(i*8)).Take(8).ToArray());
@@ -329,7 +329,7 @@ namespace sme_sha512
                 while (status.busy)
                     await ClockAsync();
             }
-            Console.WriteLine("\rDone");
+            Console.WriteLine("\r{0}/{0} blocks... Done", num_blocks);
 
             // Move the computed hash to block ram
             ctrl.finish = true;
