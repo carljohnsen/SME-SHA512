@@ -10,7 +10,7 @@ namespace sme_sha512
         {
             using (new Simulation())
             {
-                var tester = new Tester(1024*1024);
+                var tester = new Tester(1024);
                 var core = new Core();
                 var bram = new TrueDualPortMemory<ulong>(16);
 
