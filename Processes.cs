@@ -229,10 +229,15 @@ namespace sme_sha512
         [OutputBus]
         public Control ctrl = Scope.CreateBus<Control>();
 
+        public Tester(int size_bytes)
+        {
+            this.size = size_bytes;
+        }
+
         private ulong pack_bytes(byte[] data)
         {
             ulong tmp = 0;
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < Math.Min(data.Length, 8); i++)
                 tmp |= (ulong)data[i] << (64-((i+1) << 3));
             return tmp;
         }
@@ -253,38 +258,14 @@ namespace sme_sha512
         }
 
         SHA512 sha = new SHA512Managed();
+        int size;
+        Random rng = new Random();
 
         public override async System.Threading.Tasks.Task Run()
         {
             await ClockAsync();
 
-            // TODO fix at input skal være i 8 fold
             // TODO fix at køre flere blokke
-            // TODO fix så den kører på random data istedet
-
-            // Pack the data
-            ulong[] block = new ulong[16];
-            byte[] data = Encoding.ASCII.GetBytes("aoeuaoeuaoeuaoeu");
-            for (int i = 0; i < data.Length; i += 8)
-                block[i >> 3] = pack_bytes(data.Skip(i).Take(8).ToArray());
-            int bytes = data.Length;
-            int word_i = bytes / 8;
-            int byte_i = bytes % 8;
-            block[word_i] |= (ulong)0x80 << ((7-byte_i) << 3);
-            ulong bits = (ulong)bytes << 3;
-            block[15] = bits;
-
-            // Move to block ram
-            for (int i = 0; i < block.Length; i++)
-            {
-                bramwr.Enabled = true;
-                bramwr.Address = i;
-                bramwr.IsWriting = true;
-                bramwr.Data = block[i];
-                await ClockAsync();
-            }
-            bramwr.Enabled = false;
-            bramwr.IsWriting = false;
 
             // Init the hashing
             ctrl.init = true;
@@ -293,23 +274,70 @@ namespace sme_sha512
             await ClockAsync();
             while (status.busy)
                 await ClockAsync();
-            
-            // Update the hashing
-            ctrl.update = true;
-            await ClockAsync();
-            ctrl.update = false;
-            await ClockAsync();
-            while (status.busy)
-                await ClockAsync();
 
-            // Get the hash value
+            // Generate the data
+            byte[] data = new byte[size];
+            for (int i = 0; i < data.Length; i++)
+                data[i] = (byte) rng.Next();
+            //data = Encoding.ASCII.GetBytes("aoeu");
+
+            // Process the data in blocks
+            int block_size_bytes = 1024 / 8;
+            int num_blocks = ((size+17)/block_size_bytes);
+            if (((size+17)%block_size_bytes) != 0)
+                num_blocks++;
+            for (int j = 0; j < num_blocks; j++)
+            {
+                Console.Write("\r{0}/{1} blocks", j, num_blocks);
+                ulong[] block = new ulong[block_size_bytes/8];
+                for (int i = 0; i < block.Length; i++)
+                    block[i] = pack_bytes(data.Skip((j*block_size_bytes)+(i*8)).Take(8).ToArray());
+                
+                // Check if last block, in which case do padding and sizes
+                if (data.Length >= j*block_size_bytes && data.Length < (j+1)*block_size_bytes)
+                {
+                    int bytes = data.Length - (j*block_size_bytes);
+                    int word_i = bytes / 8;
+                    int byte_i = bytes % 8;
+                    block[word_i] |= (ulong)0x80 << ((7-byte_i) * 8);
+                }
+
+                if (j == num_blocks-1)
+                {
+                    ulong bits = (ulong)data.Length * 8;
+                    block[14] = 0;
+                    block[15] = bits; // Assumes data will not be bigger than 2^64 bits (i.e. 16 exabits)
+                }
+
+                // Move to block ram
+                for (int i = 0; i < block.Length; i++)
+                {
+                    bramwr.Enabled = true;
+                    bramwr.Address = i;
+                    bramwr.IsWriting = true;
+                    bramwr.Data = block[i];
+                    await ClockAsync();
+                }
+                bramwr.Enabled = false;
+                bramwr.IsWriting = false;
+                
+                // Update the hashing
+                ctrl.update = true;
+                await ClockAsync();
+                ctrl.update = false;
+                await ClockAsync();
+                while (status.busy)
+                    await ClockAsync();
+            }
+            Console.WriteLine("\rDone");
+
+            // Move the computed hash to block ram
             ctrl.finish = true;
             await ClockAsync();
             ctrl.finish = false;
             await ClockAsync();
             while (status.busy)
                 await ClockAsync();
-
 
             // Get the result
             byte[] result = new byte[8*8];
@@ -324,6 +352,7 @@ namespace sme_sha512
                     result[i*8 + j] = tmp[j];
             }
 
+            // Compare with library results
             byte[] verified = sha.ComputeHash(data);
 
             bool all_eq = true;
