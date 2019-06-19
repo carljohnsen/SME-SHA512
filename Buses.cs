@@ -17,5 +17,13 @@ namespace sme_sha512
     {
         bool busy { get; set; }
     }
+
+    [InitializedBus]
+    public interface Data : IBus
+    {
+        bool valid { get; set; }
+        ulong val { get; set; }
+        //int size { get; set; }
+    }
     
 }
